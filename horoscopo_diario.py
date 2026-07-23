@@ -1,6 +1,8 @@
 import os
 import requests
 import datetime
+import time
+import traceback
 from groq import Groq
 from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
@@ -74,12 +76,40 @@ def gerar_tabela_imagem_blogger(url_img, alt_title):
 
 
 def pedir_ia_groq(prompt, temperatura=0.7):
+    """Chamada direta à Groq sem tratamento de erro."""
     response = groq_client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model=MODELO_IA,
         temperature=temperatura,
     )
     return response.choices[0].message.content.strip()
+
+
+def pedir_ia_groq_com_retry(prompt, max_retries=5, base_delay=2):
+    """
+    Tenta chamar a Groq com retry exponencial e verifica se a resposta é válida.
+    Levanta exceção se falhar após todas as tentativas.
+    """
+    for tentativa in range(max_retries):
+        try:
+            print(f"   [IA] Tentativa {tentativa+1}/{max_retries}...")
+            resposta = pedir_ia_groq(prompt)
+            # Verifica se a resposta é razoável (pelo menos 50 caracteres)
+            if len(resposta) < 50:
+                raise ValueError(f"Resposta muito curta ({len(resposta)} caracteres).")
+            # Verifica se contém as tags esperadas (pelo menos <p> ou <h3>)
+            if "<p>" not in resposta and "<h3>" not in resposta:
+                raise ValueError("Resposta não parece conter HTML válido.")
+            return resposta
+        except Exception as e:
+            print(f"   ⚠️ Falha na tentativa {tentativa+1}: {e}")
+            if tentativa == max_retries - 1:
+                raise  # Falhou todas as tentativas
+            # Espera exponencial com jitter
+            sleep_time = base_delay * (2 ** tentativa) + (tentativa * 0.5)
+            print(f"   ⏳ Aguardando {sleep_time:.1f}s antes de tentar novamente...")
+            time.sleep(sleep_time)
+    raise RuntimeError("Nunca deveria chegar aqui.")
 
 
 def gerar_introducao(data_hoje):
@@ -89,7 +119,7 @@ def gerar_introducao(data_hoje):
     Fale sobre as energias gerais, posição da Lua e o tom para o dia. 
     Apenas responda em HTML puro usando a tag <p>, com 3 a 4 frases sem títulos.
     """
-    return pedir_ia_groq(prompt)
+    return pedir_ia_groq_com_retry(prompt)
 
 
 def gerar_horoscopo_signo(signo, periodo):
@@ -106,7 +136,7 @@ def gerar_horoscopo_signo(signo, periodo):
 
     Seja envolvente, otimista e construtivo. Não inclua o nome do signo em <h1> ou <h2> (isso será inserido externamente).
     """
-    return pedir_ia_groq(prompt)
+    return pedir_ia_groq_com_retry(prompt)
 
 
 def obter_credenciais():
@@ -132,37 +162,114 @@ def publicar_no_blogger(titulo, conteudo):
     }
     resultado = blogger.posts().insert(blogId=BLOGGER_ID, body=corpo_postagem).execute()
     print(f"\n✨ POST COMPLETO PUBLICADO COM SUCESSO!\n🔗 Link: {resultado.get('url')}")
+    return resultado
 
 
 if __name__ == "__main__":
     data_hoje = datetime.date.today().strftime("%d/%m/%Y")
     print(f"🌟 Iniciando geração do Portal de Horóscopo ({data_hoje})...")
-
+    
     # 1. Título e Introdução
     titulo_post = f"Horóscopo do Dia: Previsões para Todos os Signos - {data_hoje}"
     
     print("🔮 Criando panorama astral do dia...")
+    try:
+        intro_html = gerar_introducao(data_hoje)
+    except Exception as e:
+        print(f"❌ Falha ao gerar introdução: {e}")
+        intro_html = "<p>Hoje o céu nos convida a refletir e a nos conectar com nossas emoções. As estrelas sugerem um dia de introspecção e oportunidades para crescimento pessoal.</p>"
+    
     html_final = f"<h2>✨ Clima Astral de Hoje ({data_hoje})</h2>"
-    html_final += gerar_introducao(data_hoje)
+    html_final += intro_html
     html_final += "<hr style='border: 0; height: 1px; background: #ddd; margin: 20px 0;' />"
 
-    # 2. Gerar previsão de cada signo
+    # 2. Dicionário para armazenar os conteúdos de cada signo (caso precise repetir)
+    conteudos_signos = {}
+    signos_processados = 0
+    falhas = []
+
+    # Processar cada signo
     for signo, info in SIGNOS.items():
-        try:
-            print(f"✍️ Processando {signo}...")
-            texto_signo = gerar_horoscopo_signo(signo, info["periodo"])
-            img_url = buscar_imagem_openverse(info["img"])
-            img_html = gerar_tabela_imagem_blogger(img_url, f"Signo de {signo}")
+        print(f"✍️ Processando {signo}...")
+        for tentativa in range(2):  # no máximo 2 tentativas por signo (a segunda é repetição)
+            try:
+                if tentativa == 0:
+                    texto_signo = gerar_horoscopo_signo(signo, info["periodo"])
+                else:
+                    print(f"   🔁 Re-tentando {signo} (tentativa 2)...")
+                    texto_signo = gerar_horoscopo_signo(signo, info["periodo"])
+                
+                # Verifica conteúdo
+                if len(texto_signo) < 100:
+                    raise ValueError("Conteúdo muito curto.")
+                
+                # Buscar imagem
+                img_url = buscar_imagem_openverse(info["img"])
+                img_html = gerar_tabela_imagem_blogger(img_url, f"Signo de {signo}")
 
+                # Monta o bloco do signo
+                bloco = f"<h2 style='color: #4a2c82;'>✨ {signo} <small>({info['periodo']})</small></h2>"
+                bloco += img_html
+                bloco += texto_signo
+                bloco += "<br/><hr style='border: 0; height: 1px; background: #eee; margin: 30px 0;' />"
+                
+                # Salva no dicionário
+                conteudos_signos[signo] = bloco
+                signos_processados += 1
+                print(f"   ✅ {signo} processado com sucesso.")
+                break  # sai do loop de tentativas
+            except Exception as e:
+                print(f"   ❌ Erro ao processar {signo} (tentativa {tentativa+1}): {e}")
+                if tentativa == 1:  # já é a segunda tentativa
+                    falhas.append(signo)
+                    # Conteúdo de fallback para não deixar o signo de fora
+                    fallback = f"""
+                    <h2 style='color: #4a2c82;'>✨ {signo} <small>({info['periodo']})</small></h2>
+                    <p>As estrelas hoje sugerem um dia de equilíbrio e harmonia para {signo}. Procure ouvir sua intuição e confiar no processo.</p>
+                    <h3>Amor</h3><p>O amor está no ar, mas é importante manter a calma e a paciência.</p>
+                    <h3>Trabalho & Finanças</h3><p>Oportunidades podem surgir, esteja atento.</p>
+                    <ul><li><strong>Cor do Dia:</strong> Dourado</li><li><strong>Número da Sorte:</strong> 7</li><li><strong>Carta do Tarot:</strong> A Estrela</li></ul>
+                    <blockquote>Confie no fluxo da vida.</blockquote>
+                    <br/><hr style='border: 0; height: 1px; background: #eee; margin: 30px 0;' />
+                    """
+                    conteudos_signos[signo] = fallback
+                    print(f"   ⚠️ Fallback aplicado para {signo}.")
+                else:
+                    # Primeira tentativa falhou, aguarda um pouco antes da segunda
+                    time.sleep(5)
+        
+        # Delay entre signos para não sobrecarregar a API
+        time.sleep(1.5)
+
+    # Adiciona todos os blocos ao HTML final na ordem correta
+    for signo in SIGNOS.keys():
+        if signo in conteudos_signos:
+            html_final += conteudos_signos[signo]
+        else:
+            # Caso extremo: se algum signo não estiver no dicionário, adiciona um placeholder
+            info = SIGNOS[signo]
             html_final += f"<h2 style='color: #4a2c82;'>✨ {signo} <small>({info['periodo']})</small></h2>"
-            html_final += img_html
-            html_final += texto_signo
-            html_final += "<br/><hr style='border: 0; height: 1px; background: #eee; margin: 30px 0;' />"
+            html_final += "<p>Previsão não disponível no momento. Volte mais tarde!</p><hr/>"
 
-        except Exception as e:
-            print(f"❌ Erro ao processar o signo {signo}: {e}")
+    # Estatísticas
+    print(f"\n📊 Resumo: {signos_processados} signos processados com sucesso de {len(SIGNOS)}.")
+    if falhas:
+        print(f"⚠️ Signos que usaram fallback: {', '.join(falhas)}")
+    else:
+        print("🎉 Todos os signos foram gerados com sucesso!")
+
+    # Salvar HTML local para depuração
+    with open("horoscopo_completo.html", "w", encoding="utf-8") as f:
+        f.write(html_final)
+    print("📄 HTML salvo em 'horoscopo_completo.html' para verificação.")
 
     # 3. Publicar no Blogger
     print("🚀 Enviando artigo completo para o Blogger...")
-    publicar_no_blogger(titulo_post, html_final)
-    print("✅ Processo finalizado!")
+    try:
+        publicar_no_blogger(titulo_post, html_final)
+        print("✅ Processo finalizado com sucesso!")
+    except Exception as e:
+        print(f"❌ Falha ao publicar no Blogger: {e}")
+        traceback.print_exc()
+        # Não encerra com erro, para podermos ver o HTML salvo.
+        print("⚠️ O HTML foi salvo localmente, você pode publicar manualmente.")
