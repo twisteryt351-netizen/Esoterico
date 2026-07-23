@@ -25,40 +25,42 @@ for nome, valor in [
         raise ValueError(f"Faltou configurar a variável/segredo: {nome}")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
-MODELO_IA = "llama-3.3-70b-versatile"
+
+# Usando o modelo rápido e leve para não estourar a cota gratuita!
+MODELO_IA = "llama-3.1-8b-instant"
 
 def limpar_resposta_html(texto):
-    """Remove marcações Markdown para garantir HTML limpo e renderizável."""
+    """Remove marcações Markdown para garantir HTML limpo no Blogger."""
     texto = re.sub(r"^```html\s*", "", texto, flags=re.MULTILINE)
     texto = re.sub(r"^```\s*", "", texto, flags=re.MULTILINE)
     texto = re.sub(r"```$", "", texto, flags=re.MULTILINE)
     return texto.strip()
 
 def gerar_portal_horoscopo_completo(data_hoje):
-    """Gera o portal completo do dia com introdução e os 12 signos de uma só vez."""
+    """Gera o portal completo com introdução e os 12 signos em uma chamada eficiente."""
     prompt = f"""
-    Você é um astrólogo renomado e colunista de um grande portal místico. 
+    Você é um astrólogo renomado e colunista de um portal místico. 
     Escreva o GUIA COMPLETO DO HORÓSCOPO DIÁRIO para TODOS OS 12 SIGNOS referente ao dia {data_hoje}.
 
-    REGRAS DE FORMATAÇÃO (Retorne APENAS o HTML interno, sem tags <html> ou <body>):
+    REGRAS DE FORMATAÇÃO (Retorne APENAS HTML limpo):
 
-    1. Crie uma introdução mística (2 parágrafos curtos) sobre as energias astrais do dia.
+    1. Crie uma introdução mística (2 parágrafos) sobre o clima astral do dia.
     
-    2. Para CADA UM dos 12 signos (Áries, Touro, Gêmeos, Câncer, Leão, Virgem, Libra, Escorpião, Sagitário, Capricórnio, Aquário, Peixes), crie a estrutura exata abaixo:
+    2. Para CADA UM dos 12 signos (Áries, Touro, Gêmeos, Câncer, Leão, Virgem, Libra, Escorpião, Sagitário, Capricórnio, Aquário, Peixes), crie exatamente a estrutura abaixo:
 
        <div style="background: #ffffff; border: 1px solid #ede7f6; border-radius: 12px; padding: 20px; margin-bottom: 25px; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #ba68c8; padding-bottom: 8px; margin-bottom: 15px;">
            <h2 style="margin: 0; color: #4a148c; font-size: 22px;">✨ [NOME DO SIGNO]</h2>
-           <span style="font-size: 13px; background: #f3e5f5; color: #7b1fa2; padding: 4px 10px; border-radius: 20px; font-weight: bold;">[Período do Signo]</span>
+           <span style="font-size: 13px; background: #f3e5f5; color: #7b1fa2; padding: 4px 10px; border-radius: 20px; font-weight: bold;">[Período]</span>
          </div>
          
-         <p style="font-size: 15px; line-height: 1.6; color: #333;">[Parágrafo com a visão geral do dia para o signo]</p>
+         <p style="font-size: 15px; line-height: 1.6; color: #333;">[Visão geral do dia para o signo]</p>
          
          <h3 style="color: #6a1b9a; margin-top: 12px; font-size: 17px;">💖 Amor e Relacionamentos</h3>
-         <p style="font-size: 14px; line-height: 1.5; color: #555;">[Previsão para o amor]</p>
+         <p style="font-size: 14px; line-height: 1.5; color: #555;">[Previsão do amor]</p>
          
          <h3 style="color: #6a1b9a; margin-top: 12px; font-size: 17px;">💼 Trabalho e Finanças</h3>
-         <p style="font-size: 14px; line-height: 1.5; color: #555;">[Previsão para trabalho e finanças]</p>
+         <p style="font-size: 14px; line-height: 1.5; color: #555;">[Previsão para carreira e finanças]</p>
          
          <div style="background-color: #f3e5f5; border-left: 4px solid #8e24aa; padding: 10px 15px; margin: 15px 0; border-radius: 0 8px 8px 0;">
            <ul style="list-style: none; padding: 0; margin: 0; font-size: 14px; color: #4a148c;">
@@ -69,18 +71,18 @@ def gerar_portal_horoscopo_completo(data_hoje):
          </div>
          
          <blockquote style="background: #fafafa; border-left: 4px solid #ab47bc; margin: 10px 0; padding: 8px 12px; font-style: italic; color: #666; font-size: 13px;">
-           "[Dica Astral inspiradora do dia]"
+           "[Dica Astral inspiradora]"
          </blockquote>
        </div>
 
-    Importante: Mantenha as respostas envolventes, ricas e bem escritas. Não resuma. Escreva sobre TODOS os 12 signos na ordem zodiacal.
+    Atenção: Faça o horóscopo completo de TODOS os 12 signos na ordem zodiacal sem pular nenhum.
     """
     
     response = groq_client.chat.completions.create(
         messages=[{"role": "user", "content": prompt}],
         model=MODELO_IA,
         temperature=0.7,
-        max_tokens=7000
+        max_tokens=4000
     )
     
     raw = response.choices[0].message.content
