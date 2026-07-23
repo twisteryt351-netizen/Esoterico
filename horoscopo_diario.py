@@ -1,4 +1,3 @@
-
 import os
 import re
 import requests
@@ -117,3 +116,21 @@ def publicar_no_blogger(titulo, conteudo):
     print(f"\n✨ PORTAL COMPLETO PUBLICADO COM SUCESSO!\n🔗 Link: {resultado.get('url')}")
 
 if __name__ == "__main__":
+    data_hoje = datetime.date.today().strftime("%d/%m/%Y")
+    print(f"🌟 Gerando Portal do Horóscopo Diário Completo ({data_hoje})...")
+
+    titulo_post = f"Horóscopo do Dia: Previsões Aprofundadas para Todos os Signos — {data_hoje}"
+
+    topo_html = f'''
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
+        <div style="background: linear-gradient(135deg, #4a148c, #7b1fa2); color: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 25px;">
+            <h1 style="margin: 0; font-size: 26px; color: #ffffff;">✨ Clima Astral de Hoje ({data_hoje})</h1>
+        </div>
+    '''
+
+    conteudo_ia = gerar_portal_horoscopo_completo(data_hoje)
+    html_final = topo_html + conteudo_ia + "</div>"
+
+    print("🚀 Publicando o artigo completo no Blogger...")
+    publicar_no_blogger(titulo_post, html_final)
+    print("✅ Processo finalizado com sucesso!")
