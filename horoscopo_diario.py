@@ -7,18 +7,18 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-# --- CONFIGURAÇÕES E LIMPEZA DE SEGREDO ---
-def limpar_segredo(valor):
-    """Remove espaços, aspas ou colchetes acidentais dos Secrets do GitHub."""
-    if not valor:
+def limpar_string(texto):
+    if not texto:
         return ""
-    return valor.strip().strip("[]'\"")
+    # Remove colchetes, aspas simples/duplas e espaços das pontas
+    return texto.strip().strip("[]'\"").strip()
 
-GROQ_API_KEY = limpar_segredo(os.environ.get("GROQ_API_KEY"))
-BLOGGER_ID = limpar_segredo(os.environ.get("BLOGGER_ID_HOROSCOPO") or os.environ.get("BLOGGER_ID"))
-CLIENT_ID = limpar_segredo(os.environ.get("BLOGGER_CLIENT_ID"))
-CLIENT_SECRET = limpar_segredo(os.environ.get("BLOGGER_CLIENT_SECRET"))
-REFRESH_TOKEN = limpar_segredo(os.environ.get("BLOGGER_REFRESH_TOKEN"))
+# --- CONFIGURAÇÕES ---
+GROQ_API_KEY = limpar_string(os.environ.get("GROQ_API_KEY"))
+BLOGGER_ID = limpar_string(os.environ.get("BLOGGER_ID_HOROSCOPO") or os.environ.get("BLOGGER_ID"))
+CLIENT_ID = limpar_string(os.environ.get("BLOGGER_CLIENT_ID"))
+CLIENT_SECRET = limpar_string(os.environ.get("BLOGGER_CLIENT_SECRET"))
+REFRESH_TOKEN = limpar_string(os.environ.get("BLOGGER_REFRESH_TOKEN"))
 
 for nome, valor in [
     ("GROQ_API_KEY", GROQ_API_KEY),
@@ -41,7 +41,6 @@ def limpar_resposta_html(texto):
     return texto.strip()
 
 def gerar_portal_horoscopo_completo(data_hoje):
-    """Gera o portal completo com introdução e os 12 signos em uma chamada eficiente."""
     prompt = f"""
     Você é um astrólogo renomado e colunista de um portal místico. 
     Escreva o GUIA COMPLETO DO HORÓSCOPO DIÁRIO para TODOS OS 12 SIGNOS referente ao dia {data_hoje}.
@@ -95,9 +94,9 @@ def gerar_portal_horoscopo_completo(data_hoje):
 def obter_credenciais():
     creds = Credentials(
         token=None,
-        refresh_token=REFRESH_TOKEN,
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
+        refresh_token=str(REFRESH_TOKEN),
+        client_id=str(CLIENT_ID),
+        client_secret=str(CLIENT_SECRET),
         token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
     )
     creds.refresh(Request())
