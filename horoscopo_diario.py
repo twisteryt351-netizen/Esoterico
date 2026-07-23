@@ -1,3 +1,4 @@
+
 import os
 import re
 import requests
@@ -7,12 +8,18 @@ from googleapiclient.discovery import build
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 
-# --- CONFIGURAÇÕES ---
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
-BLOGGER_ID = os.environ.get("BLOGGER_ID_HOROSCOPO") or os.environ.get("BLOGGER_ID")
-CLIENT_ID = os.environ.get("BLOGGER_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("BLOGGER_CLIENT_SECRET")
-REFRESH_TOKEN = os.environ.get("BLOGGER_REFRESH_TOKEN")
+# --- CONFIGURAÇÕES E LIMPEZA DE SEGREDO ---
+def limpar_segredo(valor):
+    """Remove espaços, aspas ou colchetes acidentais dos Secrets do GitHub."""
+    if not valor:
+        return ""
+    return valor.strip().strip("[]'\"")
+
+GROQ_API_KEY = limpar_segredo(os.environ.get("GROQ_API_KEY"))
+BLOGGER_ID = limpar_segredo(os.environ.get("BLOGGER_ID_HOROSCOPO") or os.environ.get("BLOGGER_ID"))
+CLIENT_ID = limpar_segredo(os.environ.get("BLOGGER_CLIENT_ID"))
+CLIENT_SECRET = limpar_segredo(os.environ.get("BLOGGER_CLIENT_SECRET"))
+REFRESH_TOKEN = limpar_segredo(os.environ.get("BLOGGER_REFRESH_TOKEN"))
 
 for nome, valor in [
     ("GROQ_API_KEY", GROQ_API_KEY),
@@ -25,8 +32,6 @@ for nome, valor in [
         raise ValueError(f"Faltou configurar a variável/segredo: {nome}")
 
 groq_client = Groq(api_key=GROQ_API_KEY)
-
-# Usando o modelo rápido e leve para não estourar a cota gratuita!
 MODELO_IA = "llama-3.1-8b-instant"
 
 def limpar_resposta_html(texto):
@@ -112,21 +117,3 @@ def publicar_no_blogger(titulo, conteudo):
     print(f"\n✨ PORTAL COMPLETO PUBLICADO COM SUCESSO!\n🔗 Link: {resultado.get('url')}")
 
 if __name__ == "__main__":
-    data_hoje = datetime.date.today().strftime("%d/%m/%Y")
-    print(f"🌟 Gerando Portal do Horóscopo Diário Completo ({data_hoje})...")
-
-    titulo_post = f"Horóscopo do Dia: Previsões Aprofundadas para Todos os Signos — {data_hoje}"
-
-    topo_html = f'''
-    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
-        <div style="background: linear-gradient(135deg, #4a148c, #7b1fa2); color: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 25px;">
-            <h1 style="margin: 0; font-size: 26px; color: #ffffff;">✨ Clima Astral de Hoje ({data_hoje})</h1>
-        </div>
-    '''
-
-    conteudo_ia = gerar_portal_horoscopo_completo(data_hoje)
-    html_final = topo_html + conteudo_ia + "</div>"
-
-    print("🚀 Publicando o artigo completo no Blogger...")
-    publicar_no_blogger(titulo_post, html_final)
-    print("✅ Processo finalizado com sucesso!")
