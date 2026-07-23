@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import datetime
 from groq import Groq
@@ -26,7 +27,7 @@ for nome, valor in [
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
 
-# --- OS 12 SIGNOS COM PALAVRAS-CHAVE ---
+# --- OS 12 SIGNOS E SUAS PALAVRAS-CHAVE ---
 SIGNOS = {
     "Áries":      {"periodo": "21/03 a 19/04", "img": "aries zodiac symbol"},
     "Touro":      {"periodo": "20/04 a 20/05", "img": "taurus zodiac symbol"},
@@ -46,7 +47,7 @@ IMAGEM_PADRAO = "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/News_
 
 
 def buscar_imagem_openverse(palavra_chave):
-    """Busca uma imagem gratuita e sem direitos autorais no Openverse."""
+    """Busca uma imagem gratuita e temática no Openverse."""
     try:
         resposta = requests.get(
             "https://api.openverse.org/v1/images/",
@@ -83,28 +84,32 @@ def pedir_ia_groq(prompt, temperatura=0.7):
 
 
 def gerar_introducao(data_hoje):
-    """Gera um parágrafo introdutório sobre o panorama astral do dia."""
+    """Gera o texto de abertura místico sobre o panorama astral do dia."""
     prompt = f"""
-    Como um astrólogo profissional, escreva uma introdução cativante, mística e inspiradora sobre o clima astral de hoje ({data_hoje}). 
+    Como um astrólogo profissional e carismático, escreva uma introdução cativante, mística e inspiradora sobre o clima astral de hoje ({data_hoje}). 
     Fale sobre as energias gerais, posição da Lua e o tom para o dia. 
-    Apenas responda em HTML puro usando a tag <p>, com 3 a 4 frases sem títulos.
+    Apenas responda em HTML puro usando a tag <p>, com 3 a 4 frases, sem títulos.
     """
     return pedir_ia_groq(prompt)
 
 
 def gerar_horoscopo_signo(signo, periodo):
-    """Gera a previsão individual do signo com detalhes extras."""
+    """Gera a previsão individual do signo com blocos detalhados."""
     prompt = f"""
-    Você é um astrólogo carismático. Escreva a previsão diária para {signo} ({periodo}) em português do Brasil.
+    Você é um astrólogo experiente. Escreva a previsão diária para o signo de {signo} ({periodo}) em português do Brasil.
 
     REGRAS DE FORMATO (HTML puro, sem Markdown ou tags <html>/<body>):
-    1. Um parágrafo <p> curto sobre o clima do dia para o signo.
-    2. Subtítulo <h3> Amor</h3> + parágrafo curto.
-    3. Subtítulo <h3> Trabalho & Finanças</h3> + parágrafo curto.
-    4. Um bloco <ul> com <li><strong>Cor do Dia:</strong> [Cor]</li>, <li><strong>Número da Sorte:</strong> [Número]</li> e <li><strong>Carta do Tarot:</strong> [Carta]</li>.
-    5. Termine com uma "Dica do dia" curta dentro de uma tag <blockquote>.
+    1. Um parágrafo <p> introdutório sobre o tom geral do dia.
+    2. Subtítulo <h3>💖 Amor</h3> + parágrafo curto.
+    3. Subtítulo <h3>💼 Trabalho & Finanças</h3> + parágrafo curto.
+    4. Subtítulo <h3>🌿 Saúde</h3> + parágrafo curto.
+    5. Um bloco <ul> com:
+       - <li><strong>🎨 Cor do Dia:</strong> [Nome da Cor]</li>
+       - <li><strong>🔢 Número da Sorte:</strong> [Número]</li>
+       - <li><strong>🔮 Carta do Tarot:</strong> [Carta]</li>
+    6. Termine com uma "Dica Astral" curta dentro de uma tag <blockquote>.
 
-    Seja envolvente, otimista e construtivo. Não inclua o nome do signo em <h1> ou <h2> (isso será inserido externamente).
+    Seja motivador e envolvente. Não inclua o nome do signo no início como H1 ou H2, pois ele será inserido pela estrutura do script.
     """
     return pedir_ia_groq(prompt)
 
@@ -128,7 +133,7 @@ def publicar_no_blogger(titulo, conteudo):
         'kind': 'blogger#post',
         'title': titulo,
         'content': conteudo,
-        'labels': ["Horóscopo", "Signos", "Astrologia"]
+        'labels': ["Horóscopo", "Signos", "Astrologia", "Previsão Diária"]
     }
     resultado = blogger.posts().insert(blogId=BLOGGER_ID, body=corpo_postagem).execute()
     print(f"\n✨ POST COMPLETO PUBLICADO COM SUCESSO!\n🔗 Link: {resultado.get('url')}")
@@ -136,33 +141,43 @@ def publicar_no_blogger(titulo, conteudo):
 
 if __name__ == "__main__":
     data_hoje = datetime.date.today().strftime("%d/%m/%Y")
-    print(f"🌟 Iniciando geração do Portal de Horóscopo ({data_hoje})...")
+    print(f"🌟 Iniciando geração do Guia Completo de Horóscopo ({data_hoje})...")
 
-    # 1. Título e Introdução
-    titulo_post = f"Horóscopo do Dia: Previsões para Todos os Signos - {data_hoje}"
-    
-    print("🔮 Criando panorama astral do dia...")
-    html_final = f"<h2>✨ Clima Astral de Hoje ({data_hoje})</h2>"
+    # 1. Título do Artigo Único
+    titulo_post = f"Horóscopo do Dia: Previsões Aprofundadas para Todos os Signos — {data_hoje}"
+
+    print("🔮 Criando introdução sobre o clima astral do dia...")
+    html_final = f"<h2 style='color: #4a2c82;'>✨ Clima Astral de Hoje ({data_hoje})</h2>"
     html_final += gerar_introducao(data_hoje)
-    html_final += "<hr style='border: 0; height: 1px; background: #ddd; margin: 20px 0;' />"
+    html_final += "<hr style='border: 0; height: 1px; background: #ddd; margin: 25px 0;' />"
 
-    # 2. Gerar previsão de cada signo
+    # 2. Compilar os 12 Signos
     for signo, info in SIGNOS.items():
-        try:
-            print(f"✍️ Processando {signo}...")
-            texto_signo = gerar_horoscopo_signo(signo, info["periodo"])
-            img_url = buscar_imagem_openverse(info["img"])
-            img_html = gerar_tabela_imagem_blogger(img_url, f"Signo de {signo}")
+        sucesso = False
+        tentativas = 0
+        
+        while not sucesso and tentativas < 3:
+            try:
+                tentativas += 1
+                print(f"✍️ Compilando previsões para {signo}...")
+                
+                texto_signo = gerar_horoscopo_signo(signo, info["periodo"])
+                img_url = buscar_imagem_openverse(info["img"])
+                img_html = gerar_tabela_imagem_blogger(img_url, f"Signo de {signo}")
 
-            html_final += f"<h2 style='color: #4a2c82;'>✨ {signo} <small>({info['periodo']})</small></h2>"
-            html_final += img_html
-            html_final += texto_signo
-            html_final += "<br/><hr style='border: 0; height: 1px; background: #eee; margin: 30px 0;' />"
+                # Estrutura chique para cada signo no artigo
+                html_final += f"<h2 style='color: #4a2c82; border-bottom: 2px solid #6b3ba7; padding-bottom: 5px;'>✨ {signo} <small style='font-size: 14px; color: #666;'>({info['periodo']})</small></h2>"
+                html_final += img_html
+                html_final += texto_signo
+                html_final += "<br/><hr style='border: 0; height: 1px; background: #eee; margin: 30px 0;' />"
+                
+                sucesso = True
+                time.sleep(2)  # Pausa leve de cortesia entre chamadas da IA
+            except Exception as e:
+                print(f"⚠️ Erro ao gerar {signo} (tentativa {tentativas}): {e}")
+                time.sleep(5)
 
-        except Exception as e:
-            print(f"❌ Erro ao processar o signo {signo}: {e}")
-
-    # 3. Publicar no Blogger
-    print("🚀 Enviando artigo completo para o Blogger...")
+    # 3. Publicação Única no Blogger
+    print("\n🚀 Enviando o guia completo dos 12 signos para o Blogger...")
     publicar_no_blogger(titulo_post, html_final)
-    print("✅ Processo finalizado!")
+    print("✅ Processo concluído com sucesso!")
