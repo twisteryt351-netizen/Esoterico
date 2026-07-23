@@ -61,4 +61,70 @@ def gerar_portal_horoscopo_completo(data_hoje):
          <p style="font-size: 14px; line-height: 1.5; color: #555;">[Previsão para trabalho e finanças]</p>
          
          <div style="background-color: #f3e5f5; border-left: 4px solid #8e24aa; padding: 10px 15px; margin: 15px 0; border-radius: 0 8px 8px 0;">
-           <ul style="list-style: none; padding: 0; margin: 0; font-size: 14px; color: #
+           <ul style="list-style: none; padding: 0; margin: 0; font-size: 14px; color: #4a148c;">
+             <li style="margin-bottom: 4px;"><strong>🎨 Cor do Dia:</strong> [Cor]</li>
+             <li style="margin-bottom: 4px;"><strong>🔢 Número da Sorte:</strong> [Número]</li>
+             <li><strong>🔮 Carta do Tarot:</strong> [Carta]</li>
+           </ul>
+         </div>
+         
+         <blockquote style="background: #fafafa; border-left: 4px solid #ab47bc; margin: 10px 0; padding: 8px 12px; font-style: italic; color: #666; font-size: 13px;">
+           "[Dica Astral inspiradora do dia]"
+         </blockquote>
+       </div>
+
+    Importante: Mantenha as respostas envolventes, ricas e bem escritas. Não resuma. Escreva sobre TODOS os 12 signos na ordem zodiacal.
+    """
+    
+    response = groq_client.chat.completions.create(
+        messages=[{"role": "user", "content": prompt}],
+        model=MODELO_IA,
+        temperature=0.7,
+        max_tokens=7000
+    )
+    
+    raw = response.choices[0].message.content
+    return limpar_resposta_html(raw)
+
+def obter_credenciais():
+    creds = Credentials(
+        token=None,
+        refresh_token=REFRESH_TOKEN,
+        client_id=CLIENT_ID,
+        client_secret=CLIENT_SECRET,
+        token_uri="[https://oauth2.googleapis.com/token](https://oauth2.googleapis.com/token)",
+    )
+    creds.refresh(Request())
+    return creds
+
+def publicar_no_blogger(titulo, conteudo):
+    creds = obter_credenciais()
+    blogger = build('blogger', 'v3', credentials=creds)
+    corpo_postagem = {
+        'kind': 'blogger#post',
+        'title': titulo,
+        'content': conteudo,
+        'labels': ["Horóscopo", "Signos", "Astrologia", "Previsão Diária"]
+    }
+    resultado = blogger.posts().insert(blogId=BLOGGER_ID, body=corpo_postagem).execute()
+    print(f"\n✨ PORTAL COMPLETO PUBLICADO COM SUCESSO!\n🔗 Link: {resultado.get('url')}")
+
+if __name__ == "__main__":
+    data_hoje = datetime.date.today().strftime("%d/%m/%Y")
+    print(f"🌟 Gerando Portal do Horóscopo Diário Completo ({data_hoje})...")
+
+    titulo_post = f"Horóscopo do Dia: Previsões Aprofundadas para Todos os Signos — {data_hoje}"
+
+    topo_html = f'''
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 800px; margin: 0 auto; color: #333;">
+        <div style="background: linear-gradient(135deg, #4a148c, #7b1fa2); color: #fff; padding: 25px; border-radius: 12px; text-align: center; margin-bottom: 25px;">
+            <h1 style="margin: 0; font-size: 26px; color: #ffffff;">✨ Clima Astral de Hoje ({data_hoje})</h1>
+        </div>
+    '''
+
+    conteudo_ia = gerar_portal_horoscopo_completo(data_hoje)
+    html_final = topo_html + conteudo_ia + "</div>"
+
+    print("🚀 Publicando o artigo completo no Blogger...")
+    publicar_no_blogger(titulo_post, html_final)
+    print("✅ Processo finalizado com sucesso!")
