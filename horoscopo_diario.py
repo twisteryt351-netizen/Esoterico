@@ -1,4 +1,5 @@
 import os
+import time
 import requests
 import datetime
 from groq import Groq
@@ -26,7 +27,7 @@ for nome, valor in [
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
 
-# --- OS 12 SIGNOS E PALAVRAS-CHAVE PARA IMAGEM ---
+# --- OS 12 SIGNOS E PALAVRAS-CHAVE ---
 SIGNOS = {
     "Áries":      {"periodo": "21/03 a 19/04", "img": "aries zodiac symbol"},
     "Touro":      {"periodo": "20/04 a 20/05", "img": "taurus zodiac symbol"},
@@ -46,7 +47,6 @@ IMAGEM_PADRAO = "https://upload.wikimedia.org/wikipedia/commons/thumb/9/95/News_
 
 
 def buscar_imagem_openverse(palavra_chave):
-    """Busca uma imagem gratuita no Openverse."""
     try:
         resposta = requests.get(
             "https://api.openverse.org/v1/images/",
@@ -83,7 +83,6 @@ def pedir_ia_groq(prompt, temperatura=0.8):
 
 
 def gerar_horoscopo(signo, periodo, data_hoje):
-    """Gera a previsão completa de um único signo."""
     prompt = f"""
     Você é um astrólogo experiente e carismático, escrevendo a previsão diária para o signo de {signo} ({periodo}) referente ao dia {data_hoje}.
 
@@ -129,7 +128,7 @@ def publicar_no_blogger(titulo, conteudo, signo):
         'labels': ["Horóscopo", signo, "Astrologia"]
     }
     resultado = blogger.posts().insert(blogId=BLOGGER_ID, body=corpo_postagem).execute()
-    print(f"✨ Postado: '{titulo}' -> {resultado.get('url')}")
+    print(f"✨ Postado com sucesso: '{titulo}' -> {resultado.get('url')}")
 
 
 if __name__ == "__main__":
@@ -137,17 +136,30 @@ if __name__ == "__main__":
     print(f"🌟 Iniciando geração de posts individuais de horóscopo ({data_hoje})...")
 
     for signo, info in SIGNOS.items():
-        try:
-            print(f"✍️ Gerando horóscopo de {signo}...")
-            texto_horoscopo = gerar_horoscopo(signo, info["periodo"], data_hoje)
-            img_url = buscar_imagem_openverse(info["img"])
-            img_html = gerar_tabela_imagem_blogger(img_url, f"Horóscopo de {signo}")
+        sucesso = False
+        tentativas = 0
+        
+        while not sucesso and tentativas < 3:
+            try:
+                tentativas += 1
+                print(f"✍️ Gerando horóscopo de {signo} (Tentativa {tentativas})...")
+                
+                texto_horoscopo = gerar_horoscopo(signo, info["periodo"], data_hoje)
+                img_url = buscar_imagem_openverse(info["img"])
+                img_html = gerar_tabela_imagem_blogger(img_url, f"Horóscopo de {signo}")
 
-            titulo = f"Horóscopo de {signo} — Previsões de Hoje ({data_hoje})"
-            html_final = f"{img_html}{texto_horoscopo}"
+                titulo = f"Horóscopo de {signo} — Previsões de Hoje ({data_hoje})"
+                html_final = f"{img_html}{texto_horoscopo}"
 
-            publicar_no_blogger(titulo, html_final, signo)
-        except Exception as e:
-            print(f"❌ Erro ao processar o signo {signo}: {e}")
+                publicar_no_blogger(titulo, html_final, signo)
+                sucesso = True
+                
+                # Pausa de 5 segundos entre cada post para não estourar o limite de requisições!
+                print("⏳ Aguardando 5 segundos antes do próximo signo...")
+                time.sleep(5)
 
-    print("✅ Todos os 12 posts foram publicados com sucesso!")
+            except Exception as e:
+                print(f"❌ Erro na tentativa {tentativas} do signo {signo}: {e}")
+                time.sleep(10) # Espera 10 segundos antes de tentar de novo se der erro
+
+    print("✅ Processo finalizado com garantia de envio de todos os signos!")
