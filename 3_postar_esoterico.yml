@@ -1,0 +1,30 @@
+name: Robo de Artigo Esoterico Noturno
+
+on:
+  schedule:
+    - cron: '0 23 * * *'   # 23:00 UTC = 20:00 em Brasília
+  workflow_dispatch:
+
+jobs:
+  postar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests groq google-api-python-client google-auth-oauthlib google-auth
+      - run: python artigo_esoterico_noturno.py
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          BLOGGER_ID_HOROSCOPO: ${{ secrets.BLOGGER_ID_HOROSCOPO }}
+          BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
+          BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
+          BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
+      - name: Salvar histórico de temas
+        run: |
+          git config user.name "Robo Esoterico"
+          git config user.email "robo@exemplo.com"
+          git add historico_esoterico.txt || true
+          git commit -m "Atualiza historico" || true
+          git push || true
