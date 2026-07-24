@@ -1,4 +1,4 @@
-name: Robo de Horoscopo Diario
+ name: Robo de Horoscopo Diario
 
 on:
   schedule:
