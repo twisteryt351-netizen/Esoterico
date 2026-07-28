@@ -1,34 +1,32 @@
-name: Robo Esoterico Automatico
+name: Robo de Horoscopo Diario
 
 on:
   schedule:
-    - cron: '0 9 * * *'
+    - cron: '0 11 * * *'   # 11:00 UTC = 08:00 em Brasília
   workflow_dispatch:
 
 jobs:
   postar:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Baixar o codigo
-        uses: actions/checkout@v4
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
-
-      - name: Instalar bibliotecas
-        run: |
-          pip install google-api-python-client google-auth groq
-
-      - name: Rodar o robo
+          python-version: '3.11'
+      - run: pip install requests groq google-api-python-client google-auth-oauthlib google-auth
+      - run: python horoscopo_diario.py
         env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          BLOGGER_ID_HOROSCOPO: ${{ secrets.BLOGGER_ID_HOROSCOPO }}
           BLOGGER_CLIENT_ID: ${{ secrets.BLOGGER_CLIENT_ID }}
           BLOGGER_CLIENT_SECRET: ${{ secrets.BLOGGER_CLIENT_SECRET }}
           BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
-          BLOGGER_ID: ${{ secrets.BLOGGER_ID }}
-          BLOGGER_ID_HOROSCOPO: ${{ secrets.BLOGGER_ID_HOROSCOPO || secrets.BLOGGER_ID }}
-          BLOGGER_REFRESH_TOKEN_HOROSCOPO: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
-          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        run: python horoscopo_diario.py
+          CLOUDFLARE_WORKER_URL: ${{ secrets.CLOUDFLARE_WORKER_URL }}
+          IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
+      - name: Salvar cache de imagens dos signos
+        run: |
+          git config user.name "Robo de Horoscopo"
+          git config user.email "robo@exemplo.com"
+          git add imagens_signos.json || true
+          git commit -m "Atualiza cache de imagens dos signos" || true
+          git push || true
