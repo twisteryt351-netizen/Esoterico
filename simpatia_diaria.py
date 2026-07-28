@@ -1,4 +1,7 @@
 import os
+import re
+import time
+import base64
 import random
 import requests
 from groq import Groq
@@ -25,6 +28,15 @@ for nome, valor in [
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
+
+# --- GERACAO DE IMAGENS COM IA (Cloudflare Worker) ---
+# Opcional: se nao configurado, ou se qualquer etapa falhar, o script cai
+# automaticamente no metodo antigo (busca de imagem no Openverse).
+CLOUDFLARE_WORKER_URL = os.environ.get("CLOUDFLARE_WORKER_URL")
+CLOUDFLARE_API_KEY = "0001"
+IMGBB_API_KEY = os.environ.get("IMGBB_API_KEY")
+QTD_MIN_IMAGENS = 3
+QTD_MAX_IMAGENS = 5
 
 # --- TEMAS DE SIMPATIAS POPULARES (a IA sorteia um por dia, evitando repetir) ---
 TEMAS_SIMPATIA = [
@@ -90,6 +102,171 @@ def buscar_imagem_openverse(palavra_chave):
     except Exception as e:
         print(f"⚠️ Erro ao buscar imagem: {e}")
         return IMAGEM_PADRAO
+
+
+def _endpoint_cloudflare():
+    if not CLOUDFLARE_WORKER_URL:
+        return None
+    return f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/v1/images/generations"
+
+
+def gerar_imagem_cloudflare(prompt, ratio="16:9"):
+    """Gera uma imagem via Cloudflare Worker. Retorna bytes PNG ou None se falhar."""
+    endpoint = _endpoint_cloudflare()
+    if not endpoint:
+        return None
+    try:
+        resposta = requests.post(
+            endpoint,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLOUDFLARE_API_KEY}",
+            },
+            json={"prompt": prompt, "ratio": ratio},
+            timeout=60,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        b64 = dados["data"][0]["b64_json"]
+        return base64.b64decode(b64)
+    except Exception as e:
+        print(f"⚠️ Cloudflare Worker falhou para o prompt '{prompt[:40]}...': {e}")
+        return None
+
+
+def hospedar_imagem(imagem_bytes, nome_arquivo="imagem.png"):
+    """Sobe a imagem gerada para o imgbb.com (host gratuito via API) e retorna a URL publica.
+    Catbox.moe bloqueia uploads vindos de IPs de datacenter (ex: GitHub Actions), por isso
+    usamos o imgbb, que aceita chamadas de API normalmente."""
+    if not IMGBB_API_KEY:
+        print("⚠️ Falha ao hospedar imagem: IMGBB_API_KEY nao configurada")
+        return None
+    try:
+        b64 = base64.b64encode(imagem_bytes).decode("utf-8")
+        resposta = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_API_KEY, "image": b64, "name": nome_arquivo},
+            timeout=30,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        if dados.get("success"):
+            return dados["data"]["url"]
+        raise ValueError(f"Resposta inesperada do imgbb: {dados}")
+    except Exception as e:
+        print(f"⚠️ Falha ao hospedar imagem gerada: {e}")
+        return None
+
+
+def gerar_imagem_ia(prompt, ratio="16:9"):
+    """Pipeline completo: gera a imagem no Cloudflare Worker e hospeda no imgbb. Retorna URL ou None."""
+    imagem_bytes = gerar_imagem_cloudflare(prompt, ratio)
+    if not imagem_bytes:
+        return None
+    return hospedar_imagem(imagem_bytes)
+
+
+def _limpar_tag(texto):
+    return re.sub(r"<[^>]+>", "", texto).strip()
+
+
+def extrair_titulos_h2(html):
+    return re.findall(r"<h2[^>]*>(.*?)</h2>", html, flags=re.IGNORECASE | re.DOTALL)
+
+
+def contar_palavras_html(html):
+    texto = re.sub(r"<[^>]+>", " ", html)
+    return len(texto.split())
+
+
+def calcular_qtd_imagens(wc, minimo, maximo, base_palavras, palavras_por_imagem_extra):
+    if wc <= base_palavras:
+        return minimo
+    extras = (wc - base_palavras) // palavras_por_imagem_extra
+    return min(maximo, minimo + extras)
+
+
+def gerar_prompts_imagens_ia(titulo_post, secoes, quantidade, contexto_extra=""):
+    """Pede a IA prompts de imagem em ingles: o primeiro uma capa mistica de alto impacto
+    visual para atrair o clique, e os demais ligados a cada momento/secao do post."""
+    qtd_secoes = max(0, quantidade - 1)
+    secoes_usadas = secoes[:qtd_secoes]
+    lista_secoes = "\n".join(f"- {s}" for s in secoes_usadas) or "- (sem subtitulos definidos, use o tema geral do post)"
+
+    prompt = f"""
+Voce e um diretor de arte criando prompts para um gerador de imagens por IA (estilo Stable Diffusion/Flux)
+para um blog de misticismo e simpatias populares.
+Titulo do post: "{titulo_post}"
+{contexto_extra}
+
+Preciso de exatamente {quantidade} prompts de imagem em INGLES, cada um em uma linha separada, SEM numeracao,
+SEM aspas, SEM explicacoes - apenas os prompts, um por linha, nesta ordem:
+
+1) A PRIMEIRA linha e a imagem de CAPA: precisa ser esteticamente marcante e atmosferica -
+   velas acesas, altar simples, ervas, luz dourada ou dramatica, composicao central,
+   clima misterioso e acolhedor ao mesmo tempo, sem texto escrito na imagem, pensada para
+   maximizar cliques mantendo o tom respeitoso da tradicao popular.
+2) As proximas linhas sao uma imagem para CADA um destes momentos/secoes do post (nesta ordem):
+{lista_secoes}
+   Cada prompt deve remeter visualmente ao conteudo daquela secao especifica, mantendo
+   consistencia estetica (velas, ervas, luz suave, elementos simbolicos) com o tema geral.
+
+Cada prompt: descritivo, rico em detalhes visuais (cenario, iluminacao, estilo artistico,
+composicao), SEM citar nomes proprios de pessoas, marcas ou obras protegidas. Responda
+APENAS com as {quantidade} linhas de prompt.
+"""
+    resposta = pedir_ia_groq(prompt, temperatura=0.8)
+    linhas = [l.strip(" -\"") for l in resposta.strip().splitlines() if l.strip()]
+    if len(linhas) < quantidade:
+        while len(linhas) < quantidade:
+            linhas.append(linhas[-1] if linhas else titulo_post)
+    return linhas[:quantidade]
+
+
+def montar_galeria_ia(titulo_post, corpo_html, minimo, maximo, contexto_extra=""):
+    """Gera a galeria completa de imagens via Cloudflare Worker. Lanca excecao se qualquer
+    etapa falhar, para o chamador cair no fallback do Openverse."""
+    if not CLOUDFLARE_WORKER_URL:
+        raise RuntimeError("CLOUDFLARE_WORKER_URL nao configurada")
+    if not IMGBB_API_KEY:
+        raise RuntimeError("IMGBB_API_KEY nao configurada")
+
+    secoes_brutas = extrair_titulos_h2(corpo_html)
+    secoes = [_limpar_tag(s) for s in secoes_brutas]
+
+    wc = contar_palavras_html(corpo_html)
+    qtd = calcular_qtd_imagens(wc, minimo, maximo, base_palavras=300, palavras_por_imagem_extra=100)
+    if secoes:
+        qtd = min(qtd, len(secoes) + 1)
+    qtd = max(1, qtd)
+
+    prompts = gerar_prompts_imagens_ia(titulo_post, secoes, qtd, contexto_extra)
+
+    galeria = []
+    for i, prompt in enumerate(prompts):
+        url = gerar_imagem_ia(prompt, ratio="16:9")
+        if not url:
+            raise RuntimeError(f"Falha ao gerar/hospedar imagem {i + 1}/{qtd} da galeria")
+        alt = titulo_post if i == 0 else (secoes[i - 1] if i - 1 < len(secoes) else titulo_post)
+        galeria.append((url, alt))
+        if i < len(prompts) - 1:
+            time.sleep(1.5)  # evita rajada de requisicoes no worker gratuito
+
+    return galeria, secoes_brutas
+
+
+def inserir_imagens_no_corpo(corpo_html, secoes_brutas, galeria):
+    """Insere as imagens de secao (a partir do indice 1 da galeria) logo apos os respectivos <h2>."""
+    novo_html = corpo_html
+    imagens_secao = galeria[1:]
+    for i, (url, alt) in enumerate(imagens_secao):
+        if i >= len(secoes_brutas):
+            break
+        h2_bruto = secoes_brutas[i]
+        padrao = re.compile(r"(<h2[^>]*>" + re.escape(h2_bruto) + r"</h2>)", re.IGNORECASE)
+        img_html = gerar_tabela_imagem_blogger(url, alt)
+        novo_html, _ = padrao.subn(lambda m: m.group(1) + img_html, novo_html, count=1)
+    return novo_html
 
 
 def gerar_tabela_imagem_blogger(url_img, alt_title):
@@ -166,8 +343,22 @@ if __name__ == "__main__":
 
     titulo = gerar_titulo(tema)
     corpo = gerar_artigo_simpatia(tema)
-    img_url = buscar_imagem_openverse("candle ritual mystic")
-    img_html = gerar_tabela_imagem_blogger(img_url, titulo)
+
+    try:
+        galeria, secoes_brutas = montar_galeria_ia(
+            titulo,
+            corpo,
+            minimo=QTD_MIN_IMAGENS,
+            maximo=QTD_MAX_IMAGENS,
+            contexto_extra=f"Tema da simpatia: {tema}",
+        )
+        img_html = gerar_tabela_imagem_blogger(galeria[0][0], titulo)
+        corpo = inserir_imagens_no_corpo(corpo, secoes_brutas, galeria)
+        print(f"🎨 Galeria com {len(galeria)} imagem(ns) gerada via Cloudflare Worker.")
+    except Exception as e:
+        print(f"⚠️ Geracao de imagens via IA falhou, usando metodo padrao (Openverse): {e}")
+        img_url = buscar_imagem_openverse("candle ritual mystic")
+        img_html = gerar_tabela_imagem_blogger(img_url, titulo)
 
     aviso = (
         '<p style="font-size: 12px; color: #888; font-style: italic;">Este conteúdo é '
