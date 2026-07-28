@@ -1,4 +1,6 @@
 import os
+import json
+import base64
 import requests
 import datetime
 import time
@@ -27,6 +29,15 @@ for nome, valor in [
 
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
+
+# --- GERACAO DE IMAGENS COM IA (Cloudflare Worker) ---
+# O simbolo de cada signo nao muda dia a dia (so a previsao muda), entao a imagem de
+# cada signo e gerada UMA UNICA VEZ via IA e reaproveitada nas rodadas seguintes,
+# usando um cache em JSON commitado no repositorio.
+CLOUDFLARE_WORKER_URL = os.environ.get("CLOUDFLARE_WORKER_URL")
+CLOUDFLARE_API_KEY = "0001"
+IMGBB_API_KEY = os.environ.get("IMGBB_API_KEY")
+CACHE_IMAGENS_SIGNOS = "imagens_signos.json"
 
 # --- OS 12 SIGNOS COM PALAVRAS-CHAVE ---
 SIGNOS = {
@@ -69,6 +80,112 @@ def buscar_imagem_openverse(palavra_chave):
     except Exception as e:
         print(f"⚠️ Erro ao buscar imagem ({palavra_chave}): {e}")
         return IMAGEM_PADRAO
+
+
+def _endpoint_cloudflare():
+    if not CLOUDFLARE_WORKER_URL:
+        return None
+    return f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/v1/images/generations"
+
+
+def gerar_imagem_cloudflare(prompt, ratio="1:1"):
+    """Gera uma imagem via Cloudflare Worker. Retorna bytes PNG ou None se falhar."""
+    endpoint = _endpoint_cloudflare()
+    if not endpoint:
+        return None
+    try:
+        resposta = requests.post(
+            endpoint,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {CLOUDFLARE_API_KEY}",
+            },
+            json={"prompt": prompt, "ratio": ratio},
+            timeout=60,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        b64 = dados["data"][0]["b64_json"]
+        return base64.b64decode(b64)
+    except Exception as e:
+        print(f"⚠️ Cloudflare Worker falhou para o prompt '{prompt[:40]}...': {e}")
+        return None
+
+
+def hospedar_imagem(imagem_bytes, nome_arquivo="imagem.png"):
+    """Sobe a imagem gerada para o imgbb.com (host gratuito via API) e retorna a URL publica.
+    Catbox.moe bloqueia uploads vindos de IPs de datacenter (ex: GitHub Actions), por isso
+    usamos o imgbb, que aceita chamadas de API normalmente."""
+    if not IMGBB_API_KEY:
+        print("⚠️ Falha ao hospedar imagem: IMGBB_API_KEY nao configurada")
+        return None
+    try:
+        b64 = base64.b64encode(imagem_bytes).decode("utf-8")
+        resposta = requests.post(
+            "https://api.imgbb.com/1/upload",
+            data={"key": IMGBB_API_KEY, "image": b64, "name": nome_arquivo},
+            timeout=30,
+        )
+        resposta.raise_for_status()
+        dados = resposta.json()
+        if dados.get("success"):
+            return dados["data"]["url"]
+        raise ValueError(f"Resposta inesperada do imgbb: {dados}")
+    except Exception as e:
+        print(f"⚠️ Falha ao hospedar imagem gerada: {e}")
+        return None
+
+
+def gerar_imagem_ia(prompt, ratio="1:1"):
+    """Pipeline completo: gera a imagem no Cloudflare Worker e hospeda no imgbb. Retorna URL ou None."""
+    imagem_bytes = gerar_imagem_cloudflare(prompt, ratio)
+    if not imagem_bytes:
+        return None
+    return hospedar_imagem(imagem_bytes)
+
+
+def carregar_cache_imagens_signos():
+    if not os.path.exists(CACHE_IMAGENS_SIGNOS):
+        return {}
+    try:
+        with open(CACHE_IMAGENS_SIGNOS, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"⚠️ Nao foi possivel ler o cache de imagens dos signos: {e}")
+        return {}
+
+
+def salvar_cache_imagens_signos(cache):
+    with open(CACHE_IMAGENS_SIGNOS, "w", encoding="utf-8") as f:
+        json.dump(cache, f, ensure_ascii=False, indent=2)
+
+
+def montar_prompt_imagem_signo(palavra_chave_signo):
+    """Prompt deterministico (sem chamar a IA de texto) para a arte do simbolo do signo."""
+    return (
+        f"A beautiful mystical illustration of the {palavra_chave_signo}, elegant zodiac "
+        f"constellation art, deep cosmic night sky background with stars and nebula, gold "
+        f"and deep purple color palette, symmetrical composition, ethereal glowing lines, "
+        f"high detail digital art, no text, no watermark"
+    )
+
+
+def obter_imagem_signo(signo, palavra_chave, cache):
+    """Retorna (url, cache_mudou). Usa o cache se ja existir imagem gerada para o signo;
+    caso contrario tenta gerar via IA (Cloudflare Worker + imgbb) e salva no cache. Se a IA
+    falhar, cai no Openverse SEM salvar no cache, para tentar a IA novamente no proximo dia."""
+    if cache.get(signo):
+        return cache[signo], False
+
+    if CLOUDFLARE_WORKER_URL and IMGBB_API_KEY:
+        prompt = montar_prompt_imagem_signo(palavra_chave)
+        url = gerar_imagem_ia(prompt, ratio="1:1")
+        if url:
+            cache[signo] = url
+            return url, True
+        print(f"⚠️ Geracao de imagem via IA falhou para {signo}, usando Openverse desta vez.")
+
+    return buscar_imagem_openverse(palavra_chave), False
 
 
 def gerar_tabela_imagem_blogger(url_img, alt_title):
@@ -187,6 +304,8 @@ if __name__ == "__main__":
     conteudos_signos = {}
     signos_processados = 0
     falhas = []
+    cache_imagens_signos = carregar_cache_imagens_signos()
+    cache_mudou = False
 
     # Processar cada signo
     for signo, info in SIGNOS.items():
@@ -203,8 +322,10 @@ if __name__ == "__main__":
                 if len(texto_signo) < 100:
                     raise ValueError("Conteúdo muito curto.")
                 
-                # Buscar imagem
-                img_url = buscar_imagem_openverse(info["img"])
+                # Buscar imagem (gerada uma unica vez via IA e reaproveitada do cache)
+                img_url, imagem_nova = obter_imagem_signo(signo, info["img"], cache_imagens_signos)
+                if imagem_nova:
+                    cache_mudou = True
                 img_html = gerar_tabela_imagem_blogger(img_url, f"Signo de {signo}")
 
                 # Monta o bloco do signo
@@ -240,6 +361,14 @@ if __name__ == "__main__":
         
         # Delay entre signos para não sobrecarregar a API
         time.sleep(1.5)
+
+    # Salva o cache de imagens dos signos (se alguma imagem nova foi gerada via IA)
+    if cache_mudou:
+        try:
+            salvar_cache_imagens_signos(cache_imagens_signos)
+            print("💾 Cache de imagens dos signos atualizado.")
+        except Exception as e:
+            print(f"⚠️ Falha ao salvar cache de imagens dos signos: {e}")
 
     # Adiciona todos os blocos ao HTML final na ordem correta
     for signo in SIGNOS.keys():
