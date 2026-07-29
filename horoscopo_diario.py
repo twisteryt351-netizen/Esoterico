@@ -1,5 +1,7 @@
 import os
 import json
+import random
+import urllib.parse
 import base64
 import requests
 import datetime
@@ -30,12 +32,13 @@ for nome, valor in [
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
 
-# --- GERACAO DE IMAGENS COM IA (Cloudflare Worker) ---
+# --- GERACAO DE IMAGENS COM IA (Pollinations.ai) ---
 # O simbolo de cada signo nao muda dia a dia (so a previsao muda), entao a imagem de
 # cada signo e gerada UMA UNICA VEZ via IA e reaproveitada nas rodadas seguintes,
 # usando um cache em JSON commitado no repositorio.
-CLOUDFLARE_WORKER_URL = os.environ.get("CLOUDFLARE_WORKER_URL")
-CLOUDFLARE_API_KEY = "0001"
+POLLINATIONS_TOKEN = os.environ.get("POLLINATIONS_TOKEN")  # opcional: remove marca dagua e aumenta limite
+# Sem token: 1 requisicao a cada 15s. Com token gratuito (auth.pollinations.ai): a cada 5s.
+INTERVALO_POLLINATIONS = 6 if POLLINATIONS_TOKEN else 16
 IMGBB_API_KEY = os.environ.get("IMGBB_API_KEY")
 CACHE_IMAGENS_SIGNOS = "imagens_signos.json"
 
@@ -82,33 +85,38 @@ def buscar_imagem_openverse(palavra_chave):
         return IMAGEM_PADRAO
 
 
-def _endpoint_cloudflare():
-    if not CLOUDFLARE_WORKER_URL:
-        return None
-    return f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/v1/images/generations"
+DIMENSOES_RATIO = {
+    "16:9": (1280, 720),
+    "1:1": (1024, 1024),
+    "9:16": (720, 1280),
+}
 
 
-def gerar_imagem_cloudflare(prompt, ratio="1:1"):
-    """Gera uma imagem via Cloudflare Worker. Retorna bytes PNG ou None se falhar."""
-    endpoint = _endpoint_cloudflare()
-    if not endpoint:
-        return None
+def gerar_imagem_pollinations(prompt, ratio="1:1"):
+    """Gera uma imagem via Pollinations.ai (gratuito, sem chave, sem cota diaria).
+    Retorna bytes da imagem ou None se falhar."""
+    largura, altura = DIMENSOES_RATIO.get(ratio, (1024, 1024))
     try:
-        resposta = requests.post(
-            endpoint,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {CLOUDFLARE_API_KEY}",
-            },
-            json={"prompt": prompt, "ratio": ratio},
-            timeout=60,
-        )
+        prompt_codificado = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{prompt_codificado}"
+        params = {
+            "width": largura,
+            "height": altura,
+            "model": "flux",
+            "seed": random.randint(1, 999999),
+            "nologo": "true",
+        }
+        headers = {}
+        if POLLINATIONS_TOKEN:
+            headers["Authorization"] = f"Bearer {POLLINATIONS_TOKEN}"
+        resposta = requests.get(url, params=params, headers=headers, timeout=120)
         resposta.raise_for_status()
-        dados = resposta.json()
-        b64 = dados["data"][0]["b64_json"]
-        return base64.b64decode(b64)
+        content_type = resposta.headers.get("Content-Type", "")
+        if "image" not in content_type:
+            raise ValueError(f"Resposta nao parece ser uma imagem (Content-Type: {content_type})")
+        return resposta.content
     except Exception as e:
-        print(f"⚠️ Cloudflare Worker falhou para o prompt '{prompt[:40]}...': {e}")
+        print(f"⚠️ Pollinations.ai falhou para o prompt '{prompt[:40]}...': {e}")
         return None
 
 
@@ -137,8 +145,8 @@ def hospedar_imagem(imagem_bytes, nome_arquivo="imagem.png"):
 
 
 def gerar_imagem_ia(prompt, ratio="1:1"):
-    """Pipeline completo: gera a imagem no Cloudflare Worker e hospeda no imgbb. Retorna URL ou None."""
-    imagem_bytes = gerar_imagem_cloudflare(prompt, ratio)
+    """Pipeline completo: gera a imagem no Pollinations.ai e hospeda no imgbb. Retorna URL ou None."""
+    imagem_bytes = gerar_imagem_pollinations(prompt, ratio)
     if not imagem_bytes:
         return None
     return hospedar_imagem(imagem_bytes)
@@ -172,14 +180,15 @@ def montar_prompt_imagem_signo(palavra_chave_signo):
 
 def obter_imagem_signo(signo, palavra_chave, cache):
     """Retorna (url, cache_mudou). Usa o cache se ja existir imagem gerada para o signo;
-    caso contrario tenta gerar via IA (Cloudflare Worker + imgbb) e salva no cache. Se a IA
+    caso contrario tenta gerar via IA (Pollinations.ai + imgbb) e salva no cache. Se a IA
     falhar, cai no Openverse SEM salvar no cache, para tentar a IA novamente no proximo dia."""
     if cache.get(signo):
         return cache[signo], False
 
-    if CLOUDFLARE_WORKER_URL and IMGBB_API_KEY:
+    if IMGBB_API_KEY:
         prompt = montar_prompt_imagem_signo(palavra_chave)
         url = gerar_imagem_ia(prompt, ratio="1:1")
+        time.sleep(INTERVALO_POLLINATIONS)  # respeita o rate limit do Pollinations.ai
         if url:
             cache[signo] = url
             return url, True
