@@ -1,4 +1,5 @@
 import os
+import urllib.parse
 import re
 import time
 import base64
@@ -29,11 +30,12 @@ for nome, valor in [
 groq_client = Groq(api_key=GROQ_API_KEY)
 MODELO_IA = "llama-3.3-70b-versatile"
 
-# --- GERACAO DE IMAGENS COM IA (Cloudflare Worker) ---
+# --- GERACAO DE IMAGENS COM IA (Pollinations.ai) ---
 # Opcional: se nao configurado, ou se qualquer etapa falhar, o script cai
 # automaticamente no metodo antigo (busca de imagem no Openverse).
-CLOUDFLARE_WORKER_URL = os.environ.get("CLOUDFLARE_WORKER_URL")
-CLOUDFLARE_API_KEY = "0001"
+POLLINATIONS_TOKEN = os.environ.get("POLLINATIONS_TOKEN")  # opcional: remove marca dagua e aumenta limite
+# Sem token: 1 requisicao a cada 15s. Com token gratuito (auth.pollinations.ai): a cada 5s.
+INTERVALO_POLLINATIONS = 6 if POLLINATIONS_TOKEN else 16
 IMGBB_API_KEY = os.environ.get("IMGBB_API_KEY")
 QTD_MIN_IMAGENS = 3
 QTD_MAX_IMAGENS = 5
@@ -104,33 +106,38 @@ def buscar_imagem_openverse(palavra_chave):
         return IMAGEM_PADRAO
 
 
-def _endpoint_cloudflare():
-    if not CLOUDFLARE_WORKER_URL:
-        return None
-    return f"{CLOUDFLARE_WORKER_URL.rstrip('/')}/v1/images/generations"
+DIMENSOES_RATIO = {
+    "16:9": (1280, 720),
+    "1:1": (1024, 1024),
+    "9:16": (720, 1280),
+}
 
 
-def gerar_imagem_cloudflare(prompt, ratio="16:9"):
-    """Gera uma imagem via Cloudflare Worker. Retorna bytes PNG ou None se falhar."""
-    endpoint = _endpoint_cloudflare()
-    if not endpoint:
-        return None
+def gerar_imagem_pollinations(prompt, ratio="16:9"):
+    """Gera uma imagem via Pollinations.ai (gratuito, sem chave, sem cota diaria).
+    Retorna bytes da imagem ou None se falhar."""
+    largura, altura = DIMENSOES_RATIO.get(ratio, (1280, 720))
     try:
-        resposta = requests.post(
-            endpoint,
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {CLOUDFLARE_API_KEY}",
-            },
-            json={"prompt": prompt, "ratio": ratio},
-            timeout=60,
-        )
+        prompt_codificado = urllib.parse.quote(prompt)
+        url = f"https://image.pollinations.ai/prompt/{prompt_codificado}"
+        params = {
+            "width": largura,
+            "height": altura,
+            "model": "flux",
+            "seed": random.randint(1, 999999),
+            "nologo": "true",
+        }
+        headers = {}
+        if POLLINATIONS_TOKEN:
+            headers["Authorization"] = f"Bearer {POLLINATIONS_TOKEN}"
+        resposta = requests.get(url, params=params, headers=headers, timeout=120)
         resposta.raise_for_status()
-        dados = resposta.json()
-        b64 = dados["data"][0]["b64_json"]
-        return base64.b64decode(b64)
+        content_type = resposta.headers.get("Content-Type", "")
+        if "image" not in content_type:
+            raise ValueError(f"Resposta nao parece ser uma imagem (Content-Type: {content_type})")
+        return resposta.content
     except Exception as e:
-        print(f"⚠️ Cloudflare Worker falhou para o prompt '{prompt[:40]}...': {e}")
+        print(f"⚠️ Pollinations.ai falhou para o prompt '{prompt[:40]}...': {e}")
         return None
 
 
@@ -159,8 +166,8 @@ def hospedar_imagem(imagem_bytes, nome_arquivo="imagem.png"):
 
 
 def gerar_imagem_ia(prompt, ratio="16:9"):
-    """Pipeline completo: gera a imagem no Cloudflare Worker e hospeda no imgbb. Retorna URL ou None."""
-    imagem_bytes = gerar_imagem_cloudflare(prompt, ratio)
+    """Pipeline completo: gera a imagem no Pollinations.ai e hospeda no imgbb. Retorna URL ou None."""
+    imagem_bytes = gerar_imagem_pollinations(prompt, ratio)
     if not imagem_bytes:
         return None
     return hospedar_imagem(imagem_bytes)
@@ -224,10 +231,8 @@ APENAS com as {quantidade} linhas de prompt.
 
 
 def montar_galeria_ia(titulo_post, corpo_html, minimo, maximo, contexto_extra=""):
-    """Gera a galeria completa de imagens via Cloudflare Worker. Lanca excecao se qualquer
+    """Gera a galeria completa de imagens via Pollinations.ai. Lanca excecao se qualquer
     etapa falhar, para o chamador cair no fallback do Openverse."""
-    if not CLOUDFLARE_WORKER_URL:
-        raise RuntimeError("CLOUDFLARE_WORKER_URL nao configurada")
     if not IMGBB_API_KEY:
         raise RuntimeError("IMGBB_API_KEY nao configurada")
 
@@ -250,7 +255,7 @@ def montar_galeria_ia(titulo_post, corpo_html, minimo, maximo, contexto_extra=""
         alt = titulo_post if i == 0 else (secoes[i - 1] if i - 1 < len(secoes) else titulo_post)
         galeria.append((url, alt))
         if i < len(prompts) - 1:
-            time.sleep(1.5)  # evita rajada de requisicoes no worker gratuito
+            time.sleep(INTERVALO_POLLINATIONS)  # respeita o rate limit do Pollinations.ai
 
     return galeria, secoes_brutas
 
@@ -354,7 +359,7 @@ if __name__ == "__main__":
         )
         img_html = gerar_tabela_imagem_blogger(galeria[0][0], titulo)
         corpo = inserir_imagens_no_corpo(corpo, secoes_brutas, galeria)
-        print(f"🎨 Galeria com {len(galeria)} imagem(ns) gerada via Cloudflare Worker.")
+        print(f"🎨 Galeria com {len(galeria)} imagem(ns) gerada via Pollinations.ai.")
     except Exception as e:
         print(f"⚠️ Geracao de imagens via IA falhou, usando metodo padrao (Openverse): {e}")
         img_url = buscar_imagem_openverse("candle ritual mystic")
