@@ -1,8 +1,8 @@
-name: Robo de Horoscopo Diario
+name: Robo de Simpatia da Tarde
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 11:00 UTC = 08:00 em Brasília
+    - cron: '0 18 * * *'   # 18:00 UTC = 15:00 em Brasília
   workflow_dispatch:
 
 jobs:
@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install requests groq google-api-python-client google-auth-oauthlib google-auth
-      - run: python horoscopo_diario.py
+      - run: python simpatia_diaria.py
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           BLOGGER_ID_HOROSCOPO: ${{ secrets.BLOGGER_ID_HOROSCOPO }}
@@ -23,10 +23,10 @@ jobs:
           BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
           POLLINATIONS_TOKEN: ${{ secrets.POLLINATIONS_TOKEN }}  # opcional
           IMGBB_API_KEY: ${{ secrets.IMGBB_API_KEY }}
-      - name: Salvar cache de imagens dos signos
+      - name: Salvar histórico de temas
         run: |
-          git config user.name "Robo de Horoscopo"
+          git config user.name "Robo de Simpatia"
           git config user.email "robo@exemplo.com"
-          git add imagens_signos.json || true
-          git commit -m "Atualiza cache de imagens dos signos" || true
+          git add historico_simpatias.txt || true
+          git commit -m "Atualiza historico" || true
           git push || true
