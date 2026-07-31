@@ -316,7 +316,7 @@ def gerar_artigo_simpatia(tema):
     6. O texto deve ter entre 300 e 450 palavras, tom acolhedor, respeitoso com a tradição,
        sem fazer promessas médicas, financeiras ou legais garantidas (é uma tradição cultural
        e de fé popular, não uma garantia de resultado).
-    7. Não inclua links nem chamadas de venda.
+    7. Coloque tag´s nos post´s
     """
     return pedir_ia_groq(prompt, temperatura=0.75)
 
