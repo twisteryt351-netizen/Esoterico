@@ -259,6 +259,7 @@ def gerar_horoscopo_signo(signo, periodo):
     3. Subtítulo <h3> Trabalho & Finanças</h3> + parágrafo curto.
     4. Um bloco <ul> com <li><strong>Cor do Dia:</strong> [Cor]</li>, <li><strong>Número da Sorte:</strong> [Número]</li> e <li><strong>Carta do Tarot:</strong> [Carta]</li>.
     5. Termine com uma "Dica do dia" curta dentro de uma tag <blockquote>.
+    6.Coloque tag´s nos post´s
 
     Seja envolvente, otimista e construtivo. Não inclua o nome do signo em <h1> ou <h2> (isso será inserido externamente).
     """
