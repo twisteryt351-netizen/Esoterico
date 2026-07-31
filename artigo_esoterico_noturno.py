@@ -329,7 +329,7 @@ def gerar_artigo_esoterico(tema):
        curiosidades que conhece sobre o tema, ou seguir o blog para mais conteúdos —
        buscando construir uma comunidade engajada de leitores interessados em misticismo.
     5. O texto deve ter entre 400 e 800 palavras, bem escrito e envolvente, sem repetição.
-    6. Não inclua links nem chamadas de venda.
+    6. Coloque tag´s nos post´s
     """
     return pedir_ia_groq(prompt, temperatura=0.75)
 
