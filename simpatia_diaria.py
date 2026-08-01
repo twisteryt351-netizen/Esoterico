@@ -40,6 +40,9 @@ IMGBB_API_KEY = os.environ.get("IMGBB_API_KEY")
 QTD_MIN_IMAGENS = 3
 QTD_MAX_IMAGENS = 5
 
+# --- TAGS/MARCADORES FIXOS DO BLOG ---
+TAGS_SIMPATIA = ["Simpatias", "Ritual", "Magia"]
+
 # --- TEMAS DE SIMPATIAS POPULARES (a IA sorteia um por dia, evitando repetir) ---
 TEMAS_SIMPATIA = [
     "simpatia para atrair dinheiro e prosperidade",
@@ -316,7 +319,6 @@ def gerar_artigo_simpatia(tema):
     6. O texto deve ter entre 300 e 450 palavras, tom acolhedor, respeitoso com a tradição,
        sem fazer promessas médicas, financeiras ou legais garantidas (é uma tradição cultural
        e de fé popular, não uma garantia de resultado).
-    7. Coloque tag´s nos post´s como: simpatias,ritual,magia,
     """
     return pedir_ia_groq(prompt, temperatura=0.75)
 
@@ -333,10 +335,12 @@ def obter_credenciais():
     return creds
 
 
-def publicar_no_blogger(titulo, conteudo):
+def publicar_no_blogger(titulo, conteudo, tags=None):
     creds = obter_credenciais()
     blogger = build('blogger', 'v3', credentials=creds)
     corpo_postagem = {'kind': 'blogger#post', 'title': titulo, 'content': conteudo}
+    if tags:
+        corpo_postagem['labels'] = tags
     resultado = blogger.posts().insert(blogId=BLOGGER_ID, body=corpo_postagem).execute()
     print(f"🕯️ Postado: '{titulo}' -> {resultado.get('url')}")
 
@@ -373,6 +377,6 @@ if __name__ == "__main__":
     )
 
     html_final = f"{img_html}{corpo}{aviso}"
-    publicar_no_blogger(titulo, html_final)
+    publicar_no_blogger(titulo, html_final, TAGS_SIMPATIA)
     marcar_tema_usado(tema)
     print("✅ Concluído!")
